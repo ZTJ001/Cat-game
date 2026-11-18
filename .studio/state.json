@@ -1,0 +1,13 @@
+{
+  "title": "厨房猫偷鱼干",
+  "orientation": "landscape",
+  "build": { "at": "2026-11-12T15:40:00.000Z", "file": "dist/index.html" },
+  "versions": [
+    {
+      "id": "v1",
+      "createdAt": "2026-11-12T15:40:00.000Z",
+      "note": "初版：收集 20 条鱼干，躲避扫地机器人"
+    }
+  ],
+  "updatedAt": "2026-11-12T15:40:00.000Z"
+}

@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "template": "collector",
+  "title": "厨房猫偷鱼干",
+  "orientation": "landscape",
+  "slots": {},
+  "rules": {
+    "goal": "收集 20 条鱼干，躲开扫地机器人",
+    "duration": 0,
+    "hearts": 3,
+    "maxPickups": 5,
+    "robotStart": 2,
+    "robotMax": 6,
+    "control": "方向键 / WASD / 按住屏幕拖动",
+    "layout": {
+      "style": "四周环形走廊 + 内部十字通道，家具不贴边界",
+      "minBoundaryGapPx": 100,
+      "minCorridorPx": 96,
+      "audit": ["layout-audit.cjs", "test-layout.cjs"]
+    },
+    "boost": {
+      "item": "逗猫棒",
+      "firstSpawnSeconds": [8, 15],
+      "respawnSeconds": [12, 25],
+      "itemTtlSeconds": 9,
+      "speedMultiplier": 2,
+      "durationSeconds": 10
+    },
+    "mouse": {
+      "maxAtOnce": 1,
+      "spawn": "随机刷新：时机与位置都随机；场上始终最多 1 只",
+      "firstSpawnSeconds": [8, 15],
+      "respawnSeconds": [45, 75],
+      "initialLives": 3,
+      "baseRadius": 12,
+      "baseSpeed": 168,
+      "perFish": { "grow": 1.10, "gainLife": 1 },
+      "rageAtFish": 5,
+      "rageSeconds": 6,
+      "rageEndCostLives": 2,
+      "rageEndReset": "狂暴结束扣 2 命、吃鱼进度归零、体型回基础，需重新吃满 5 条再次狂暴",
+      "rageBehavior": "限时 6 秒；期间与机器人一致：主动追猫、撞击扣猫一颗心；此后不再吃鱼、猫无法攻击它；每碰一次机器人自己 -1 命",
+      "robotStunSeconds": 3,
+      "rageRobotHitDamage": 1,
+      "catAttackDamage": 1,
+      "catRewardOnKill": 1,
+      "catRewardNote": "只有猫亲手打死老鼠才补 1 命（可超过初始上限）；狂暴耗尽或机器人撞死不补",
+      "audit": ["test-mouse.cjs"]
+    }
+  }
+}

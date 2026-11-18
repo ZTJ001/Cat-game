@@ -1,0 +1,1960 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f2e7d6">
+<title>厨房猫偷鱼干</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    margin:0;padding:18px;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(120% 90% at 50% 0%,#fdf8f0 0%,#f4e9d8 45%,#e9dcc8 100%);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+    color:#3a2f28;overflow:hidden;
+  }
+  .frame{width:min(100%,980px);display:flex;flex-direction:column;gap:12px}
+  .stage{
+    position:relative;width:100%;aspect-ratio:16/9;border-radius:20px;overflow:hidden;
+    background:#f4ead9;touch-action:none;
+    box-shadow:0 22px 55px rgba(120,90,60,.24),0 1px 0 rgba(255,255,255,.9) inset;
+  }
+  canvas{display:block;width:100%;height:100%}
+  .hint{margin:0;text-align:center;font-size:12.5px;color:#8b7a66;letter-spacing:.02em}
+
+  .overlay{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    background:rgba(255,250,242,.68);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+    transition:opacity .28s ease,visibility .28s;
+  }
+  .overlay.hidden{opacity:0;visibility:hidden}
+  .panel{
+    width:min(88%,470px);background:#fffdf9;border:1px solid #efe2cf;border-radius:20px;
+    padding:clamp(18px,3.2vw,32px);text-align:center;
+    box-shadow:0 20px 45px rgba(120,90,60,.16);
+    animation:pop .32s cubic-bezier(.2,1.1,.4,1) both;
+  }
+  @keyframes pop{from{transform:translateY(12px) scale(.965);opacity:0}to{transform:none;opacity:1}}
+  .emoji{font-size:clamp(30px,5vw,42px);line-height:1;margin-bottom:6px}
+  .panel h1{margin:4px 0 8px;font-size:clamp(19px,3.1vw,26px);letter-spacing:.01em}
+  .panel p{margin:0 0 6px;font-size:clamp(12.5px,1.7vw,14.5px);color:#7b6a58;line-height:1.65}
+  .stat{margin:10px 0 2px!important;color:#b3712f!important;font-weight:600}
+  button{
+    margin:16px auto 10px;display:block;border:0;cursor:pointer;
+    padding:12px 34px;border-radius:999px;font-size:15px;font-weight:700;letter-spacing:.02em;
+    color:#fff;background:linear-gradient(135deg,#f6a35c,#ef7d4e);
+    box-shadow:0 10px 22px rgba(239,125,78,.34);transition:transform .15s,box-shadow .15s;
+    font-family:inherit;
+  }
+  button:hover{transform:translateY(-1px);box-shadow:0 13px 26px rgba(239,125,78,.4)}
+  button:active{transform:translateY(1px) scale(.99)}
+  .keys{margin:0!important;font-size:clamp(11px,1.5vw,12.5px)!important;color:#9a8a77!important}
+  .sound{
+    position:absolute;right:14px;bottom:14px;width:38px;height:38px;padding:0;margin:0;
+    border-radius:12px;background:rgba(255,255,255,.86);color:#7b6a58;
+    font-size:16px;box-shadow:0 3px 10px rgba(120,90,60,.14);
+  }
+  .sound:hover,.fx:hover{transform:none;box-shadow:0 4px 12px rgba(120,90,60,.2)}
+  .fx{
+    position:absolute;right:60px;bottom:14px;height:38px;padding:0 12px;margin:0;
+    border-radius:12px;background:rgba(255,255,255,.86);color:#7b6a58;
+    font-size:12.5px;font-weight:600;box-shadow:0 3px 10px rgba(120,90,60,.14);
+    font-family:inherit;
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="stage" id="stage">
+    <canvas id="c"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="panel">
+        <div class="emoji" id="emoji">🐟</div>
+        <h1 id="ttl">厨房猫偷鱼干</h1>
+        <p id="sub">叼走 20 条鱼干，别被扫地机器人撞到。</p>
+        <p class="stat" id="stat"></p>
+        <button id="btn">开始偷鱼干</button>
+        <p class="keys">方向键 / WASD · 手机拖动 · 逗猫棒冲刺 10 秒 · 撞一次掉一颗心<br>老鼠吃满 5 条狂暴 6 秒，结束会掉 2 命——趁它弱小时撞死它，能补 1 条命！</p>
+      </div>
+    </div>
+    <button class="fx" id="fxBtn" title="动效强度">动效 100%</button>
+    <button class="sound" id="soundBtn" title="声音开关">🔊</button>
+  </div>
+  <p class="hint">厨房猫偷鱼干 · 收集 20 条鱼干即胜利</p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- 画布 ----------
+  var W = 960, H = 540, GOAL = 20, ROBOT_MAX = 6;
+  var BOOST_DURATION = 10, BOOST_MULT = 2, FEATHER_TTL = 9;
+  // 小老鼠：吃满 RAGE_EAT 条鱼干后由「躲猫觅食」反转为「像机器人一样追猫」
+  var MOUSE_GROW = 1.10;
+  // 随机刷新：首次 8~15s 后出现；消失后 45~75s（均值 60s）随机再来。位置每次也随机。
+  var MOUSE_FIRST_SPAWN = [8, 15], MOUSE_RESPAWN_RANGE = [45, 75];
+  var MOUSE_RAGE_EAT = 5;
+  var MOUSE_RAGE_TIME = 6, MOUSE_RAGE_COST = 2;   // 狂暴持续 6s，结束扣 2 命并重置
+  var MOUSE_BASE_R = 12, MOUSE_BASE_LIVES = 3, MOUSE_BASE_SPEED = 168;
+  var MOUSE_STUN = 3, MOUSE_INV = 1.0;
+  var MOUSE_SENSE = 190, MOUSE_LOSE = 250;   // 滞回：进入/退出躲猫的猫距
+  var WARN_TIME = 2.2;                        // 「小心老鼠」闪屏时长
+  var cvs = document.getElementById('c');
+  var ctx = cvs.getContext('2d');
+  var DPR = Math.min(2, window.devicePixelRatio || 1);
+  cvs.width = W * DPR;
+  cvs.height = H * DPR;
+
+  // ---------- 游戏状态 ----------
+  var state = 'ready';           // ready | playing | over
+  var t = 0, last = 0, elapsed = 0;
+  var collected = 0, lives = 3;
+  var muted = false, winFlag = false, fps = 60;
+  var autoDir = null, autoUntil = 0, ghost = 0;
+
+  // ---------- 反馈层：只做表现，不改模拟规则 ----------
+  // trauma 抖动与 hit-stop 恢复走真实时间；冻结姿态走缩放时间。
+  var HIT_COLORS = ['#e8705a', '#ffd9a0'];
+  var BOOST_COLORS = ['#f48fb1', '#8ecdf6', '#ffd36e', '#a8d8a0'];
+  var TIERS = {
+    // small 专供逗猫棒：不顿帧、不闪光，只给轻微抖动 + 彩色粒子 + 上扬音效
+    small:  { trauma: 0.14, stop: 0,    slow: 1,    parts: 8,  flash: 0,    pop: 0,    sfx: 'boost', colors: BOOST_COLORS },
+    medium: { trauma: 0.46, stop: 0.06, slow: 0.06, parts: 9,  flash: 0.34, pop: 1,    sfx: 'hit',   colors: HIT_COLORS },
+    large:  { trauma: 0.85, stop: 0.12, slow: 0.02, parts: 22, flash: 0.5,  pop: 1.35, sfx: 'hit',   colors: HIT_COLORS }
+  };
+  var SHAKE_DECAY = 1.8;                  // trauma / 秒
+  var FX_STRENGTH = [1, 0.3, 0];          // 动效 100% / 30% / 关
+  var fxLevel = 0;
+  var timeScale = 1, hitStopLeft = 0, hitStopSlow = 1;
+  var trauma = 0, shakePhase = 0, flash = 0, popT = 1, popAmp = 1;
+  try {
+    var savedFx = parseInt(window.localStorage.getItem('kitchen-cat-fx'), 10);
+    if (savedFx === 0 || savedFx === 1 || savedFx === 2) fxLevel = savedFx;
+  } catch (e) {}
+  if (location.search.indexOf('reduce=1') >= 0) fxLevel = 2;
+
+  var cat = { x: 470, y: 292, r: 17, angle: -Math.PI / 2, inv: 0, step: 0 };
+  var fish = [], robots = [], parts = [], pops = [];
+  // 逗猫棒：随机间隔出现、限时未拾取即消失；碰上后速度 ×2 持续 10 秒
+  var feather = null, featherTimer = 10, speedBoost = 0;
+  // 小老鼠：全局最多一只；null 表示场面上没有，mouseRespawn 为其重生倒计时
+  var mouse = null, mouseRespawn = 0, mouseWarn = 0, mouseWarnFlash = 0;
+
+  // ---------- 厨房布局 ----------
+  // 所有家具离画布边界 >=100px，彼此之间留 >=96px 通道：
+  // 形成「四周环形走廊 + 内部十字通道」，任何一台机器人都堵不出孤岛。
+  // 家具绘制按 f.w/f.h 比例取点，尺寸调整不会让图案越界。
+  var furniture = [
+    { x: 125, y: 125, w: 112, h: 112, type: 'fridge'  },
+    { x: 333, y: 125, w: 240, h: 58,  type: 'sink'    },
+    { x: 669, y: 125, w: 166, h: 84,  type: 'stove'   },
+    { x: 125, y: 333, w: 112, h: 54,  type: 'counter' },
+    { x: 333, y: 333, w: 170, h: 82,  type: 'table'   },
+    { x: 669, y: 333, w: 166, h: 76,  type: 'island'  }
+  ];
+
+  // ---------- 工具 ----------
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function shadowBox(x, y, w, h, r) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(110,80,50,.20)';
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 7;
+    rr(x, y, w, h, r);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.restore();
+  }
+  function blocked(x, y, r) {
+    if (x < r + 8 || x > W - r - 8 || y < r + 8 || y > H - r - 8) return true;
+    for (var i = 0; i < furniture.length; i++) {
+      var f = furniture[i];
+      var cx = Math.max(f.x, Math.min(x, f.x + f.w));
+      var cy = Math.max(f.y, Math.min(y, f.y + f.h));
+      var dx = x - cx, dy = y - cy;
+      if (dx * dx + dy * dy < (r + 2) * (r + 2)) return true;
+    }
+    return false;
+  }
+  function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
+
+  // 解卡：任何实体因穿墙/击退停在家具内部时，推到最近的可行走点。
+  // 用递增半径的圆环采样，保证一定能找到空位（画布边界外一定不 blocked 的环也在内）。
+  function unstick(o, r) {
+    if (!blocked(o.x, o.y, r)) return;
+    for (var rad = 4; rad <= 120; rad += 4) {
+      for (var i = 0; i < 16; i++) {
+        var a = i * 0.3927;                    // 16 个方向
+        var nx = o.x + Math.cos(a) * rad, ny = o.y + Math.sin(a) * rad;
+        if (!blocked(nx, ny, r)) { o.x = nx; o.y = ny; return; }
+      }
+    }
+    // 兜底：极端情况下回到出生点附近
+    o.x = 470; o.y = 292;
+  }
+
+  // ---------- 声音 ----------
+  var ac = null;
+  function tone(type, f0, f1, dur, vol, wave) {
+    if (muted) return;
+    try {
+      if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      var now = ac.currentTime;
+      var o = ac.createOscillator(), g = ac.createGain();
+      o.type = wave || 'triangle';
+      o.frequency.setValueAtTime(f0, now);
+      o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), now + dur);
+      g.gain.setValueAtTime(vol, now);
+      g.gain.exponentialRampToValueAtTime(0.0008, now + dur + 0.04);
+      o.connect(g); g.connect(ac.destination);
+      o.start(now); o.stop(now + dur + 0.06);
+    } catch (e) { /* 忽略音频失败 */ }
+  }
+  function sfx(kind) {
+    if (kind === 'pick') tone('p', 680, 1180, 0.10, 0.14);
+    else if (kind === 'hit') { tone('h', 250, 85, 0.26, 0.18, 'sawtooth'); tone('h', 160, 60, 0.3, 0.1, 'square'); }
+    else if (kind === 'win') { tone('w', 523, 660, 0.14, 0.14); setTimeout(function () { tone('w', 784, 1046, 0.28, 0.14); }, 140); }
+    else if (kind === 'lose') { tone('l', 400, 150, 0.5, 0.15, 'sawtooth'); }
+    else if (kind === 'start') { tone('s', 420, 700, 0.12, 0.1); }
+    else if (kind === 'boost') { tone('b', 520, 880, 0.13, 0.13); tone('b', 780, 1320, 0.22, 0.09); }
+    else if (kind === 'warn') { tone('m', 320, 220, 0.18, 0.16, 'square'); setTimeout(function () { tone('m', 320, 220, 0.18, 0.16, 'square'); }, 230); }
+    else if (kind === 'mouse') { tone('m', 900, 1300, 0.09, 0.1); }   // 老鼠吃鱼
+    else if (kind === 'squeak') { tone('m', 1100, 700, 0.12, 0.1); }  // 老鼠受击
+    // 猫打死老鼠补命：明亮的上行三音，和"掉命"的沉重音明确区分
+    else if (kind === 'life') {
+      tone('g', 523, 660, 0.10, 0.11);
+      setTimeout(function () { tone('g', 784, 988, 0.12, 0.11); }, 100);
+      setTimeout(function () { tone('g', 1046, 1318, 0.20, 0.10); }, 210);
+    }
+  }
+
+  // ---------- 反馈层实现 ----------
+  // 一次事件只调一次 feedback(tier, x, y)，让全游戏保持同一套强度比例。
+  function feedback(tier, x, y) {
+    var cfg = TIERS[tier] || TIERS.medium;
+    trauma = Math.min(1, trauma + cfg.trauma);          // 叠加而非重置
+    if (cfg.stop > 0) {
+      if (hitStopLeft <= 0) hitStopSlow = 1;
+      // 重叠的一击取较长的冻结；恢复权只属于最新这次，没有旧定时器能提前解冻
+      hitStopLeft = Math.max(hitStopLeft, cfg.stop * (fxLevel >= 1 ? 0.5 : 1));
+      hitStopSlow = Math.min(hitStopSlow, cfg.slow);
+      timeScale = hitStopSlow;
+    }
+    popT = 0; popAmp = cfg.pop;
+    flash = cfg.flash * (fxLevel >= 1 ? 0.22 : 1);     // 减弱模式改成淡色 tint
+    burstHit(x, y, cfg.parts, cfg.colors);
+    if (cfg.sfx) sfx(cfg.sfx);
+  }
+
+  function burstHit(x, y, n, colors) {
+    var pal = colors || HIT_COLORS;
+    for (var i = 0; i < n; i++) {
+      var a = Math.random() * 6.28, sp = 60 + Math.random() * 170;
+      parts.push({
+        x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+        life: 0.3 + Math.random() * 0.35, max: 0.65,
+        size: 1.8 + Math.random() * 2.6,
+        color: pal[i % pal.length]
+      });
+    }
+  }
+
+  // ease-out-back：先过冲再回落，终点精确等于静止值
+  function easeOutBack(p) {
+    var c1 = 1.70158, c3 = c1 + 1, q = p - 1;
+    return 1 + c3 * q * q * q + c1 * q * q;
+  }
+  function catScale() {
+    if (popT >= 1 || popAmp <= 0) return { x: 1, y: 1 };
+    var k = easeOutBack(popT);
+    return { x: 1 + 0.32 * popAmp * (1 - k), y: 1 - 0.28 * popAmp * (1 - k) };
+  }
+  function shakeOffset() {
+    var str = FX_STRENGTH[fxLevel];
+    if (trauma <= 0 || str === 0) return { on: false, x: 0, y: 0, roll: 0 };
+    var s = trauma * trauma * str;                      // 平方：小撞击几乎不晃
+    return {
+      on: true,
+      x: 13 * s * Math.sin(shakePhase * 1.7),
+      y: 9 * s * Math.sin(shakePhase * 2.3),
+      roll: 0.018 * s * Math.sin(shakePhase * 1.1)
+    };
+  }
+
+  // ---------- 初始化 ----------
+  function reset() {
+    collected = 0; lives = 3; elapsed = 0;
+    timeScale = 1; hitStopLeft = 0; hitStopSlow = 1;
+    trauma = 0; shakePhase = 0; flash = 0; popT = 1; popAmp = 1;
+    cat.x = 470; cat.y = 292; cat.angle = -Math.PI / 2; cat.inv = 1.4; cat.step = 0;
+    fish.length = 0; robots.length = 0; parts.length = 0; pops.length = 0;
+    feather = null; speedBoost = 0;
+    mouse = null; mouseRespawn = 0; mouseWarn = 0; mouseWarnFlash = 0;
+    scheduleFeather(true);
+    scheduleMouseRespawn(true);   // 首次随机 8~15s 后才有老鼠，不再开局立即出现
+    for (var i = 0; i < 5; i++) spawnFish();
+    robots.push(makeRobot()); robots.push(makeRobot());
+  }
+
+  function makeRobot() {
+    var spot = null;
+    for (var i = 0; i < 200; i++) {
+      var x = 70 + Math.random() * (W - 140);
+      var y = 70 + Math.random() * (H - 140);
+      if (blocked(x, y, 26)) continue;
+      if (dist(x, y, cat.x, cat.y) < 230) continue;
+      spot = { x: x, y: y };
+      break;
+    }
+    if (!spot) spot = { x: 120, y: 470 };
+    return {
+      x: spot.x, y: spot.y, r: 20,
+      speed: 90 + collected * 1.15 + Math.random() * 10,
+      tx: 0, ty: 0, alert: 0, spin: Math.random() * 6.28, stuck: 0, stun: 0
+    };
+  }
+
+  function spawnFish() {
+    for (var i = 0; i < 120; i++) {
+      var x = 90 + Math.random() * (W - 180);
+      var y = 90 + Math.random() * (H - 180);
+      if (blocked(x, y, 46)) continue;
+      if (dist(x, y, cat.x, cat.y) < 110) continue;
+      var ok = true;
+      for (var j = 0; j < fish.length; j++) {
+        if (dist(x, y, fish[j].x, fish[j].y) < 78) { ok = false; break; }
+      }
+      if (!ok) continue;
+      fish.push({ x: x, y: y, ph: Math.random() * 6.28 });
+      return;
+    }
+  }
+
+  function burst(x, y) {
+    for (var i = 0; i < 11; i++) {
+      var a = Math.random() * 6.28, s = 40 + Math.random() * 130;
+      parts.push({
+        x: x, y: y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40,
+        life: 0.45 + Math.random() * 0.4, max: 0.85,
+        size: 2 + Math.random() * 3,
+        color: Math.random() < 0.5 ? '#f0b26a' : '#ffd9a0'
+      });
+    }
+  }
+
+  // ---------- 逗猫棒：随机投放 + 限时增益 ----------
+  function scheduleFeather(first) {
+    // 首次 8~15 秒，之后 12~25 秒，间隔始终随机
+    featherTimer = (first ? 8 : 12) + Math.random() * (first ? 7 : 13);
+  }
+
+  function spawnFeather() {
+    for (var i = 0; i < 160; i++) {
+      var x = 90 + Math.random() * (W - 180);
+      var y = 90 + Math.random() * (H - 180);
+      // 与鱼干同样的可达性余量，避免生成在猫物理上够不到的墙角
+      if (blocked(x, y, 46)) continue;
+      if (dist(x, y, cat.x, cat.y) < 150) continue;
+      var ok = true;
+      for (var j = 0; j < fish.length; j++) {
+        if (dist(x, y, fish[j].x, fish[j].y) < 64) { ok = false; break; }
+      }
+      if (!ok) continue;
+      feather = { x: x, y: y, ph: Math.random() * 6.28, ttl: FEATHER_TTL };
+      return true;
+    }
+    scheduleFeather(false);   // 这次没找到合适位置，稍后再试
+    return false;
+  }
+
+  function updateFeather(dt) {
+    if (speedBoost > 0) speedBoost = Math.max(0, speedBoost - dt);
+    for (var i = pops.length - 1; i >= 0; i--) {
+      var q = pops[i];
+      q.life -= dt;
+      if (q.life <= 0) { pops.splice(i, 1); continue; }
+      q.y -= 26 * dt;
+    }
+    if (feather) {
+      feather.ttl -= dt;
+      if (feather.ttl <= 0) { feather = null; scheduleFeather(false); }
+      return;
+    }
+    featherTimer -= dt;
+    if (featherTimer <= 0) spawnFeather();
+  }
+
+  // hx/hy 可传入以做确定性回归；正常游戏用猫自身坐标
+  function checkFeather(hx, hy) {
+    if (!feather) return;
+    var cx = hx === undefined ? cat.x : hx;
+    var cy = hy === undefined ? cat.y : hy;
+    if (dist(feather.x, feather.y, cx, cy) >= cat.r + 22) return;
+    var fx = feather.x, fy = feather.y;
+    feather = null;
+    scheduleFeather(false);
+    speedBoost = BOOST_DURATION;         // 刷新时长，不叠加倍率
+    feedback('small', fx, fy);           // 拾取不该顿帧，用最轻的一档
+    pops.push({ x: fx, y: fy - 18, text: '冲刺 ×2!', life: 1.1, max: 1.1 });
+  }
+
+  // ---------- 更新 ----------
+  function update(dt, realDt) {
+    if (state === 'playing') elapsed += dt;
+
+    for (var p = parts.length - 1; p >= 0; p--) {
+      var q = parts[p];
+      q.life -= dt;
+      if (q.life <= 0) { parts.splice(p, 1); continue; }
+      q.vy += 320 * dt;
+      q.x += q.vx * dt; q.y += q.vy * dt;
+    }
+
+    // 抖动衰减 / tint / 恢复计时都用真实时间，顿帧期间不会停在偏离中心的位置
+    if (trauma > 0) {
+      trauma = Math.max(0, trauma - SHAKE_DECAY * realDt);
+      shakePhase += realDt * 30;
+    }
+    if (flash > 0) flash = Math.max(0, flash - realDt * 1.8);
+    // 压扁姿态属于「被冻结的那一帧」，跟随缩放时间
+    if (popT < 1) popT = Math.min(1, popT + dt / 0.18);
+
+    if (state !== 'playing') return;
+
+    moveCat(dt);
+    for (var i = 0; i < robots.length; i++) moveRobot(robots[i], dt);
+    resolveRobots();
+    updateMouse(dt);            // 老鼠 FSM 决策与移动（眩晕计时也在这里）
+    resolveMouseRobots();       // 狂暴老鼠与机器人互相分离
+    updateFeather(dt);
+    checkPickups();
+    checkMousePickups();        // 老鼠抢鱼干
+    checkFeather();
+    checkHits();                // 机器人撞猫
+    checkRageMouseHit();        // 狂暴老鼠撞猫（与机器人同机制）
+    checkRobotMouse();          // 机器人撞老鼠致晕 3 秒
+    checkCatAttackMouse();      // 猫攻击普通阶段老鼠
+  }
+
+  function moveCat(dt) {
+    var dx = 0, dy = 0;
+    if (keys['arrowleft'] || keys['a']) dx -= 1;
+    if (keys['arrowright'] || keys['d']) dx += 1;
+    if (keys['arrowup'] || keys['w']) dy -= 1;
+    if (keys['arrowdown'] || keys['s']) dy += 1;
+
+    if (dx || dy) {
+      var l = Math.hypot(dx, dy); dx /= l; dy /= l;
+    } else if (autoDir && t < autoUntil) {
+      dx = autoDir.x; dy = autoDir.y;
+    } else if (pointer) {
+      var px = pointer.x - cat.x, py = pointer.y - cat.y;
+      var d = Math.hypot(px, py);
+      if (d > 12) { dx = px / d; dy = py / d; }
+    }
+
+    var sp = 228 * (speedBoost > 0 ? BOOST_MULT : 1);
+    if (dx || dy) {
+      var nx = cat.x + dx * sp * dt, ny = cat.y + dy * sp * dt;
+      if (ghost > 0 || !blocked(nx, cat.y, cat.r)) cat.x = nx;
+      if (ghost > 0 || !blocked(cat.x, ny, cat.r)) cat.y = ny;
+      cat.angle = Math.atan2(dy, dx);
+      cat.step += dt * 11;
+    } else {
+      cat.step += dt * 2.2;
+    }
+    if (cat.inv > 0) cat.inv = Math.max(0, cat.inv - dt);
+    if (ghost > 0) {
+      ghost = Math.max(0, ghost - dt);
+      cat.x = Math.max(cat.r + 8, Math.min(W - cat.r - 8, cat.x));
+      cat.y = Math.max(cat.r + 8, Math.min(H - cat.r - 8, cat.y));
+    }
+    unstick(cat, cat.r);
+  }
+
+  function moveRobot(r, dt) {
+    // 被撞后短暂失控：原地退开，给玩家脱身的机会
+    if (r.stun > 0) {
+      r.stun -= dt;
+      r.spin -= dt * 2.2;
+      r.alert += (0 - r.alert) * Math.min(1, dt * 6);
+      var away = Math.atan2(r.y - cat.y, r.x - cat.x);
+      var bx = Math.cos(away) * 62 * dt, by = Math.sin(away) * 62 * dt;
+      if (!blocked(r.x + bx, r.y, r.r)) r.x += bx;
+      if (!blocked(r.x, r.y + by, r.r)) r.y += by;
+      return;
+    }
+
+    var d = dist(r.x, r.y, cat.x, cat.y);
+    var hunting = d < 195 && cat.inv <= 0;
+    r.alert += ((hunting ? 1 : 0) - r.alert) * Math.min(1, dt * 5);
+
+    var tx, ty;
+    if (hunting) { tx = cat.x; ty = cat.y; }
+    else {
+      if (!r.tx || dist(r.x, r.y, r.tx, r.ty) < 26) pickPatrol(r);
+      tx = r.tx; ty = r.ty;
+    }
+
+    var sp = r.speed * (hunting ? 1.18 : 0.82);
+    var a = Math.atan2(ty - r.y, tx - r.x);
+    var vx = Math.cos(a) * sp * dt, vy = Math.sin(a) * sp * dt;
+    var moved = false;
+
+    if (!blocked(r.x + vx, r.y, r.r)) { r.x += vx; moved = true; }
+    if (!blocked(r.x, r.y + vy, r.r)) { r.y += vy; moved = true; }
+
+    if (!moved) { r.stuck += dt; if (r.stuck > 0.25) { pickPatrol(r); r.stuck = 0; } }
+    else r.stuck = 0;
+
+    r.spin += dt * (hunting ? 9 : 5.5);
+  }
+
+  function pickPatrol(r) {
+    for (var i = 0; i < 60; i++) {
+      var x = 70 + Math.random() * (W - 140);
+      var y = 70 + Math.random() * (H - 140);
+      if (!blocked(x, y, 24)) { r.tx = x; r.ty = y; return; }
+    }
+    r.tx = r.x; r.ty = r.y;
+  }
+
+  function checkPickups() {
+    for (var i = fish.length - 1; i >= 0; i--) {
+      var f = fish[i];
+      if (dist(f.x, f.y, cat.x, cat.y) < cat.r + 21) {
+        fish.splice(i, 1);
+        collected++;
+        burst(f.x, f.y);
+        sfx('pick');
+        spawnFish();
+        maybeAddRobot();
+        if (collected >= GOAL) { finish(true); return; }
+      }
+    }
+  }
+
+  function maybeAddRobot() {
+    var want = Math.min(ROBOT_MAX, 2 + Math.floor(collected / 6));
+    while (robots.length < want) robots.push(makeRobot());
+  }
+
+  function checkHits() {
+    if (cat.inv > 0) return;
+    for (var i = 0; i < robots.length; i++) {
+      var r = robots[i];
+      if (r.stun > 0) continue;
+      if (dist(r.x, r.y, cat.x, cat.y) < cat.r + r.r - 7) {
+        lives--;
+        cat.inv = 2.4;
+        ghost = 0.4;
+        // 一次撞击只发一次反馈包；最后一命升到 large
+        feedback(lives <= 0 ? 'large' : 'medium',
+                 (cat.x + r.x) / 2, (cat.y + r.y) / 2);
+
+        // 沿撞击反方向把猫推出去
+        var a = Math.atan2(cat.y - r.y, cat.x - r.x);
+        for (var s = 0; s < 48; s++) {
+          var nx = cat.x + Math.cos(a) * 5, ny = cat.y + Math.sin(a) * 5;
+          if (blocked(nx, ny, cat.r)) break;
+          cat.x = nx; cat.y = ny;
+        }
+
+        // 撞到你的那台退开，附近的一起晕一下，避免连环撞
+        for (var j = 0; j < robots.length; j++) {
+          robots[j].stun = Math.max(robots[j].stun, 1.2);
+          robots[j].tx = 0;
+        }
+
+        if (lives <= 0) { finish(false); }
+        return;
+      }
+    }
+  }
+
+  function resolveRobots() {
+    for (var i = 0; i < robots.length; i++) {
+      for (var j = i + 1; j < robots.length; j++) {
+        var a = robots[i], b = robots[j];
+        var dx = b.x - a.x, dy = b.y - a.y;
+        var d = Math.hypot(dx, dy);
+        var min = 38;
+        if (d > 0.01 && d < min) {
+          var push = (min - d) / 2;
+          var ux = dx / d, uy = dy / d;
+          if (!blocked(a.x - ux * push, a.y - uy * push, a.r)) { a.x -= ux * push; a.y -= uy * push; }
+          if (!blocked(b.x + ux * push, b.y + uy * push, b.r)) { b.x += ux * push; b.y += uy * push; }
+        }
+      }
+    }
+  }
+
+  // ==================== 小老鼠 ====================
+  // 单只 AI：普通阶段在「觅食 / 躲猫 / 眩晕」间切换；吃满 5 条鱼干后转为
+  // 狂暴(rage)，此后行为与扫地机器人一致——主动追猫、撞击扣猫一颗心。
+  // 决策走 Blackboard(每帧感知) → FSM → 转向(优先级截断) → 移动，避免
+  // 「觅食与躲猫方向相加抵消」导致的卡墙抖动。
+
+  // 随机调度下一次刷新时刻（首次与重生用不同区间），位置由 spawnMouse 每次随机决定
+  function scheduleMouseRespawn(first) {
+    var range = first ? MOUSE_FIRST_SPAWN : MOUSE_RESPAWN_RANGE;
+    mouseRespawn = range[0] + Math.random() * (range[1] - range[0]);
+  }
+
+  function spawnMouse() {
+    // 远离猫、机器人在可通行区找一个点
+    var spot = null;
+    for (var i = 0; i < 200; i++) {
+      var x = 70 + Math.random() * (W - 140);
+      var y = 70 + Math.random() * (H - 140);
+      if (blocked(x, y, MOUSE_BASE_R + 4)) continue;
+      if (dist(x, y, cat.x, cat.y) < 260) continue;
+      var ok = true;
+      for (var j = 0; j < robots.length; j++) {
+        if (dist(x, y, robots[j].x, robots[j].y) < 120) { ok = false; break; }
+      }
+      // 别贴着鱼干出生，否则老鼠开局瞬间就吃到，进度不易理解
+      for (var q = 0; q < fish.length; q++) {
+        if (dist(x, y, fish[q].x, fish[q].y) < 90) { ok = false; break; }
+      }
+      if (!ok) continue;
+      spot = { x: x, y: y };
+      break;
+    }
+    if (!spot) spot = { x: 120, y: 470 };
+    mouse = {
+      x: spot.x, y: spot.y, r: MOUSE_BASE_R,
+      angle: Math.random() * 6.28, step: Math.random() * 6.28,
+      eaten: 0, lives: MOUSE_BASE_LIVES, mode: 'timid',   // timid | rage
+      stun: 0, inv: 0, tx: 0, ty: 0, stuck: 0, alert: 0,
+      rageLeft: 0
+    };
+    mouseRespawn = 0;
+    pickForage(mouse);
+  }
+
+  function pickForage(m) {
+    // 找到最近的鱼干作为觅食目标；没有就随机巡逻点
+    var best = null, bd = 1e9;
+    for (var i = 0; i < fish.length; i++) {
+      var d = dist(m.x, m.y, fish[i].x, fish[i].y);
+      if (d < bd) { bd = d; best = fish[i]; }
+    }
+    if (best) { m.tx = best.x; m.ty = best.y; }
+    else {
+      for (var k = 0; k < 40; k++) {
+        var x = 70 + Math.random() * (W - 140), y = 70 + Math.random() * (H - 140);
+        if (!blocked(x, y, m.r + 2)) { m.tx = x; m.ty = y; break; }
+      }
+    }
+  }
+
+  function moveMouse(m, dx, dy, sp, dt) {
+    var l = Math.hypot(dx, dy);
+    if (l < 0.001) { m.step += dt * 3; return false; }
+    dx /= l; dy /= l;
+    var nx = m.x + dx * sp * dt, ny = m.y + dy * sp * dt;
+    var moved = false;
+    if (!blocked(nx, m.y, m.r)) { m.x = nx; moved = true; }
+    if (!blocked(m.x, ny, m.r)) { m.y = ny; moved = true; }
+    m.angle = Math.atan2(dy, dx);
+    m.step += dt * 12;
+    return moved;
+  }
+
+  function updateMouse(dt) {
+    // 「小心老鼠」闪屏与闪动走真实时间，不受顿帧影响（在 update 里用 realDt 推进）
+    if (mouseWarn > 0) {
+      mouseWarn = Math.max(0, mouseWarn - dt);
+      mouseWarnFlash += dt * 9;
+    }
+    if (!mouse) {
+      if (mouseRespawn > 0) {
+        mouseRespawn -= dt;
+        if (mouseRespawn <= 0) spawnMouse();
+      }
+      return;
+    }
+    var m = mouse;
+    if (m.inv > 0) m.inv = Math.max(0, m.inv - dt);
+    // 狂暴是限时状态：倒计时到点强制退出（扣 2 命 + 重置吃鱼进度，见 exitRage）
+    if (m.mode === 'rage' && m.rageLeft > 0) {
+      m.rageLeft = Math.max(0, m.rageLeft - dt);
+      if (m.rageLeft <= 0) { exitRage(); return; }
+    }
+
+    // 眩晕：原地停住，只有视觉上的挣扎旋转
+    if (m.stun > 0) {
+      m.stun = Math.max(0, m.stun - dt);
+      m.step += dt * 4;
+      return;
+    }
+
+    var dCat = dist(m.x, m.y, cat.x, cat.y);
+
+    if (m.mode === 'timid') {
+      // 感知 → FSM：带滞回的躲猫状态（进入 190 / 退出 250），避免边界抖动
+      if (m.fleeing === undefined) m.fleeing = false;
+      if (!m.fleeing && dCat < MOUSE_SENSE) m.fleeing = true;
+      else if (m.fleeing && dCat > MOUSE_LOSE) m.fleeing = false;
+
+      var moved;
+      if (m.fleeing) {
+        // 优先级截断：躲猫直接覆盖觅食方向，不做加权求和
+        m.alert += (1 - m.alert) * Math.min(1, dt * 8);
+        var fx = m.x - cat.x, fy = m.y - cat.y;
+        // 完全重合时方向向量退化，用老鼠当前朝向作逃跑方向，避免原地不动
+        if (Math.abs(fx) < 0.5 && Math.abs(fy) < 0.5) {
+          fx = Math.cos(m.angle); fy = Math.sin(m.angle);
+        }
+        moved = moveMouse(m, fx, fy, MOUSE_BASE_SPEED * 1.06, dt);
+        // 贴墙被逼到死角时沿切线绕开
+        if (!moved) { m.stuck += dt; moveMouse(m, -(m.y - cat.y), (m.x - cat.x), MOUSE_BASE_SPEED, dt); }
+      } else {
+        m.alert += (0 - m.alert) * Math.min(1, dt * 5);
+        if (!m.tx || dist(m.x, m.y, m.tx, m.ty) < 14) pickForage(m);
+        moved = moveMouse(m, m.tx - m.x, m.ty - m.y, MOUSE_BASE_SPEED * 0.86, dt);
+      }
+      if (!moved) { m.stuck += dt; if (m.stuck > 0.4) { pickForage(m); m.fleeing = false; m.stuck = 0; } }
+      else m.stuck = 0;
+    } else {
+      // rage：与机器人一致——追猫、撞击
+      var hunting = dCat < 400 && cat.inv <= 0;
+      m.alert += ((hunting ? 1 : 0) - m.alert) * Math.min(1, dt * 6);
+      var tx, ty;
+      if (hunting) { tx = cat.x; ty = cat.y; }
+      else { if (!m.tx || dist(m.x, m.y, m.tx, m.ty) < 26) pickForage(m); tx = m.tx; ty = m.ty; }
+      var sp = MOUSE_BASE_SPEED * (hunting ? 1.16 : 0.9);
+      var moved2 = moveMouse(m, tx - m.x, ty - m.y, sp, dt);
+      if (!moved2) { m.stuck += dt; if (m.stuck > 0.35) { pickForage(m); m.stuck = 0; } }
+      else m.stuck = 0;
+    }
+    unstick(m, m.r);
+  }
+
+  // 老鼠吃鱼干：不计入玩家的 collected，但自己变大 + 加一条命。
+  // 狂暴后与机器人机制一致——不再吃鱼干，只追猫，避免无限变强。
+  function checkMousePickups() {
+    if (!mouse || mouse.stun > 0 || mouse.mode !== 'timid') return;
+    var m = mouse;
+    for (var i = fish.length - 1; i >= 0; i--) {
+      var f = fish[i];
+      if (dist(f.x, f.y, m.x, m.y) < m.r + 16) {
+        fish.splice(i, 1);
+        m.eaten++;
+        m.lives++;
+        m.r = MOUSE_BASE_R * Math.pow(MOUSE_GROW, m.eaten);
+        burst(f.x, f.y);
+        sfx('mouse');
+        spawnFish();                     // 保持场上鱼干数量稳定
+        pops.push({ x: m.x, y: m.y - 20, text: '+1 条命', life: 0.9, max: 0.9, color: '#8a5a34' });
+        if (m.eaten >= MOUSE_RAGE_EAT && m.mode === 'timid') enterRage();
+        return;                          // 一帧只吃一条
+      }
+    }
+  }
+
+  function enterRage() {
+    var m = mouse;
+    if (!m) return;
+    m.mode = 'rage';
+    m.fleeing = false;
+    m.rageLeft = MOUSE_RAGE_TIME;
+    m.stun = 0;
+    mouseWarn = WARN_TIME;
+    mouseWarnFlash = 0;
+    sfx('warn');
+    feedback('large', m.x, m.y);
+    pops.push({ x: m.x, y: m.y - 26, text: '狂暴 6 秒！', life: 1.4, max: 1.4, color: '#d6453a' });
+  }
+
+  // 狂暴结束：扣 2 条命、吃鱼进度归零、体型回基础，重新变回需要躲猫的普通老鼠。
+  // 若扣完命已归零则从画面消失，进入 60 秒重生倒计时。
+  function exitRage() {
+    var m = mouse;
+    if (!m) return;
+    m.mode = 'timid';
+    m.rageLeft = 0;
+    m.fleeing = false;
+    m.eaten = 0;                          // 重新吃鱼才能再次狂暴
+    m.r = MOUSE_BASE_R;                   // 体型回到基础
+    m.lives -= MOUSE_RAGE_COST;
+    m.inv = MOUSE_INV;                    // 退出瞬间给短无敌，避免刚变弱就被连撞
+    m.stun = 0;
+    if (m.stuck) m.stuck = 0;
+    mouseWarn = 0;
+    sfx('squeak');
+    if (m.lives <= 0) {
+      burst(m.x, m.y);
+      mouse = null;
+      scheduleMouseRespawn(false);
+      pops.push({ x: cat.x, y: cat.y - 22, text: '老鼠跑掉了', life: 1.2, max: 1.2 });
+    } else {
+      pops.push({ x: m.x, y: m.y - 26, text: '体力耗尽 -2 命', life: 1.4, max: 1.4, color: '#d6453a' });
+    }
+  }
+
+  // 机器人碰老鼠：
+  //   普通阶段 → 晕 3 秒、原地停住；
+  //   狂暴阶段 → 每碰一次机器人扣 1 条命（带 1 秒无敌间隔，避免贴着连续扣）。
+  function checkRobotMouse() {
+    if (!mouse) return;
+    var m = mouse;
+    if (m.stun > 0 || m.inv > 0) return;
+    for (var i = 0; i < robots.length; i++) {
+      var r = robots[i];
+      if (r.stun > 0) continue;
+      // 狂暴时阈值放宽到接触边缘（resolveMouseRobots 会把两者推到刚好贴住），
+      // 否则分离后永远达不到碰撞条件。
+      var reach = m.mode === 'rage' ? r.r + m.r + 2 : r.r + m.r - 5;
+      if (dist(r.x, r.y, m.x, m.y) < reach) {
+        var a = Math.atan2(m.y - r.y, m.x - r.x);
+        // 击退老鼠，避免贴着机器人反复触发
+        for (var s = 0; s < 30; s++) {
+          var nx = m.x + Math.cos(a) * 4, ny = m.y + Math.sin(a) * 4;
+          if (blocked(nx, ny, m.r)) break;
+          m.x = nx; m.y = ny;
+        }
+        r.stun = Math.max(r.stun, 0.6);
+        sfx('squeak');
+        if (m.mode === 'rage') {
+          m.lives--;
+          m.inv = MOUSE_INV;
+          feedback('small', m.x, m.y);
+          if (m.lives <= 0) {
+            burst(m.x, m.y);
+            mouse = null;
+            scheduleMouseRespawn(false);
+            pops.push({ x: cat.x, y: cat.y - 22, text: '老鼠跑掉了', life: 1.2, max: 1.2 });
+          } else {
+            pops.push({ x: m.x, y: m.y - 20, text: '撞 -1 命', life: 0.9, max: 0.9, color: '#d6453a' });
+          }
+        } else {
+          m.stun = MOUSE_STUN;
+          m.fleeing = false;
+          pops.push({ x: m.x, y: m.y - 20, text: '晕眩 3s', life: 1, max: 1, color: '#7a6a58' });
+        }
+        return;
+      }
+    }
+  }
+
+  // 猫攻击老鼠（仅普通阶段）：每次 -1 条命；命尽则老鼠消失并进入随机重生倒计时，
+  // 同时猫亲手捕获老鼠 → 补 1 条命（其他致死源如狂暴耗尽/机器人撞击不补）。
+  function checkCatAttackMouse() {
+    if (!mouse) return;
+    var m = mouse;
+    if (m.mode !== 'timid' || m.inv > 0 || m.stun > 0) return;
+    if (dist(cat.x, cat.y, m.x, m.y) >= cat.r + m.r - 3) return;
+    m.lives--;
+    m.inv = MOUSE_INV;
+    sfx('squeak');
+    feedback('small', (cat.x + m.x) / 2, (cat.y + m.y) / 2);
+    // 把老鼠沿反方向击退
+    var a = Math.atan2(m.y - cat.y, m.x - cat.x);
+    for (var s = 0; s < 40; s++) {
+      var nx = m.x + Math.cos(a) * 4, ny = m.y + Math.sin(a) * 4;
+      if (blocked(nx, ny, m.r)) break;
+      m.x = nx; m.y = ny;
+    }
+    if (m.lives <= 0) {
+      burst(m.x, m.y);
+      mouse = null;
+      scheduleMouseRespawn(false);
+      lives++;                                   // 猫捕获老鼠 → 补一条命（可超过初始上限）
+      sfx('life');
+      pops.push({ x: cat.x, y: cat.y - 30, text: '捕获老鼠 +1 命', life: 1.6, max: 1.6, color: '#2f9e6f' });
+    } else {
+      pops.push({ x: m.x, y: m.y - 18, text: '-1 命', life: 0.8, max: 0.8, color: '#d6453a' });
+    }
+  }
+
+  // 狂暴老鼠撞猫：与机器人撞击完全一致的处理（走 checkHits 里的同一套反馈与击退）
+  function checkRageMouseHit() {
+    if (!mouse || mouse.mode !== 'rage') return false;
+    var m = mouse;
+    if (m.stun > 0 || cat.inv > 0) return false;
+    if (dist(m.x, m.y, cat.x, cat.y) >= cat.r + m.r - 7) return false;
+    lives--;
+    cat.inv = 2.4;
+    ghost = 0.4;
+    feedback(lives <= 0 ? 'large' : 'medium', (cat.x + m.x) / 2, (cat.y + m.y) / 2);
+    var a = Math.atan2(cat.y - m.y, cat.x - m.x);
+    for (var s = 0; s < 48; s++) {
+      var nx = cat.x + Math.cos(a) * 5, ny = cat.y + Math.sin(a) * 5;
+      if (blocked(nx, ny, cat.r)) break;
+      cat.x = nx; cat.y = ny;
+    }
+    m.stun = 1.2;   // 和机器人撞完退开一样
+    for (var j = 0; j < robots.length; j++) { robots[j].stun = Math.max(robots[j].stun, 1.2); robots[j].tx = 0; }
+    if (lives <= 0) finish(false);
+    return true;
+  }
+
+  // 狂暴老鼠与机器人互相分离（机制一致：谁也不被单方撞晕）
+  function resolveMouseRobots() {
+    if (!mouse || mouse.mode !== 'rage') return;
+    var m = mouse;
+    for (var i = 0; i < robots.length; i++) {
+      var b = robots[i];
+      var dx = b.x - m.x, dy = b.y - m.y, d = Math.hypot(dx, dy);
+      var min = m.r + b.r - 2;
+      if (d > 0.01 && d < min) {
+        var push = (min - d) / 2, ux = dx / d, uy = dy / d;
+        if (!blocked(m.x - ux * push, m.y - uy * push, m.r)) { m.x -= ux * push; m.y -= uy * push; }
+        if (!blocked(b.x + ux * push, b.y + uy * push, b.r)) { b.x += ux * push; b.y += uy * push; }
+      }
+    }
+  }
+
+  // ---------- 绘制 ----------
+  function draw() {
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    var sh = shakeOffset();
+    if (sh.on) {
+      ctx.translate(W / 2 + sh.x, H / 2 + sh.y);
+      ctx.rotate(sh.roll);
+      ctx.translate(-W / 2, -H / 2);
+    }
+
+    drawFloor();
+    drawDecor();
+    for (var i = 0; i < furniture.length; i++) drawFurniture(furniture[i]);
+
+    for (var j = 0; j < fish.length; j++) {
+      var f = fish[j];
+      drawFish(f.x, f.y + Math.sin(t * 3 + f.ph) * 3.5, 1);
+    }
+    for (var k = 0; k < robots.length; k++) drawRobot(robots[k]);
+    if (feather) drawFeather(feather);
+    if (mouse) drawMouse(mouse);
+    drawCat();
+    drawParts();
+    drawPops();
+
+    ctx.restore();
+    // 「小心老鼠」闪屏：盖住世界但不盖 HUD
+    if (mouseWarn > 0) drawWarnBanner();
+    // tint 盖住世界但不盖 HUD；减弱模式下退化成很淡的一层
+    if (flash > 0.001) {
+      ctx.fillStyle = 'rgba(214,74,58,' + (flash * 0.55).toFixed(3) + ')';
+      ctx.fillRect(0, 0, W, H);
+    }
+    drawHUD();
+  }
+
+  function drawFloor() {
+    ctx.fillStyle = '#f6ecdc';
+    ctx.fillRect(0, 0, W, H);
+    var s = 60;
+    for (var y = 0; y < H; y += s) {
+      for (var x = 0; x < W; x += s) {
+        if (((x / s) + (y / s)) % 2 === 0) {
+          ctx.fillStyle = '#efe2cd';
+          ctx.fillRect(x, y, s, s);
+        }
+      }
+    }
+    ctx.strokeStyle = 'rgba(196,172,142,.32)';
+    ctx.lineWidth = 1;
+    for (var gx = 0; gx <= W; gx += s) {
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+    }
+    for (var gy = 0; gy <= H; gy += s) {
+      ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
+    }
+    var grad = ctx.createLinearGradient(0, 0, 0, 34);
+    grad.addColorStop(0, 'rgba(125,98,70,.13)');
+    grad.addColorStop(1, 'rgba(125,98,70,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, 34);
+  }
+
+  function drawDecor() {
+    // 地垫
+    ctx.save();
+    rr(376, 434, 208, 70, 14);
+    ctx.fillStyle = 'rgba(214,196,168,.85)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(190,168,138,.9)';
+    ctx.lineWidth = 2; ctx.stroke();
+    ctx.setLineDash([8, 8]);
+    ctx.strokeStyle = 'rgba(190,168,138,.55)';
+    rr(388, 444, 184, 50, 10); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // 猫碗
+    ctx.save();
+    ctx.beginPath(); ctx.arc(300, 352, 17, 0, 6.2832);
+    ctx.fillStyle = '#a9c9dc'; ctx.fill();
+    ctx.beginPath(); ctx.arc(300, 352, 11, 0, 6.2832);
+    ctx.fillStyle = '#7fa8bf'; ctx.fill();
+    for (var i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.arc(295 + (i % 2) * 9, 348 + Math.floor(i / 2) * 7, 2.1, 0, 6.2832);
+      ctx.fillStyle = '#8a5a34'; ctx.fill();
+    }
+    ctx.restore();
+
+    // 垃圾桶
+    ctx.save();
+    ctx.beginPath(); ctx.arc(906, 470, 19, 0, 6.2832);
+    ctx.fillStyle = '#c9cfd6'; ctx.fill();
+    ctx.strokeStyle = '#a8b0ba'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(906, 470, 12, 0, 6.2832);
+    ctx.strokeStyle = '#b5bcc5'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawFurniture(f) {
+    ctx.save();
+    var pw = f.w, ph = f.h;      // 图案按家具尺寸比例绘制，改位置/尺寸都不会越界
+    switch (f.type) {
+      case 'fridge':
+        shadowBox(f.x, f.y, f.w, f.h, 12);
+        rr(f.x, f.y, f.w, f.h, 12);
+        var g1 = ctx.createLinearGradient(f.x, f.y, f.x + f.w, f.y + f.h);
+        g1.addColorStop(0, '#eef5f8'); g1.addColorStop(1, '#dbe8ef');
+        ctx.fillStyle = g1; ctx.fill();
+        ctx.strokeStyle = '#c2d3dd'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#b9ccd8';
+        rr(f.x + pw * 0.84, f.y + ph * 0.14, pw * 0.06, ph * 0.35, 4); ctx.fill();
+        // 冰箱贴
+        ctx.fillStyle = '#f3b4a0'; ctx.fillRect(f.x + pw * 0.15, f.y + ph * 0.17, pw * 0.12, ph * 0.08);
+        ctx.fillStyle = '#a8cfb0'; ctx.fillRect(f.x + pw * 0.35, f.y + ph * 0.28, pw * 0.10, ph * 0.08);
+        ctx.fillStyle = '#f6d78a'; ctx.fillRect(f.x + pw * 0.18, f.y + ph * 0.45, pw * 0.11, ph * 0.06);
+        break;
+
+      case 'counter':
+        shadowBox(f.x, f.y, f.w, f.h, 10);
+        rr(f.x, f.y, f.w, f.h, 10);
+        ctx.fillStyle = '#d3a173'; ctx.fill();
+        ctx.strokeStyle = '#bd8757'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,.28)';
+        rr(f.x + pw * 0.076, f.y + ph * 0.17, pw * 0.82, ph * 0.26, 6); ctx.fill();
+        // 砧板
+        ctx.fillStyle = '#e5c79b';
+        rr(f.x + pw * 0.12, f.y + ph * 0.45, pw * 0.39, ph * 0.45, 6); ctx.fill();
+        break;
+
+      case 'sink':
+        shadowBox(f.x, f.y, f.w, f.h, 10);
+        rr(f.x, f.y, f.w, f.h, 10);
+        ctx.fillStyle = '#e9e5d9'; ctx.fill();
+        ctx.strokeStyle = '#d2ccbc'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#cfd6d9';
+        rr(f.x + pw * 0.15,  f.y + ph * 0.23, pw * 0.30, ph * 0.55, 8); ctx.fill();
+        rr(f.x + pw * 0.545, f.y + ph * 0.23, pw * 0.30, ph * 0.55, 8); ctx.fill();
+        ctx.strokeStyle = '#aeb8bd'; ctx.lineWidth = 2;
+        rr(f.x + pw * 0.162, f.y + ph * 0.29, pw * 0.273, ph * 0.42, 6); ctx.stroke();
+        rr(f.x + pw * 0.558, f.y + ph * 0.29, pw * 0.273, ph * 0.42, 6); ctx.stroke();
+        // 水龙头
+        ctx.beginPath();
+        ctx.arc(f.x + pw * 0.494, f.y + ph * 0.5, Math.min(7, ph * 0.1), 0, 6.2832);
+        ctx.fillStyle = '#b9c3c8'; ctx.fill();
+        break;
+
+      case 'stove':
+        shadowBox(f.x, f.y, f.w, f.h, 12);
+        rr(f.x, f.y, f.w, f.h, 12);
+        var g2 = ctx.createLinearGradient(f.x, f.y, f.x, f.y + f.h);
+        g2.addColorStop(0, '#565c66'); g2.addColorStop(1, '#3d424b');
+        ctx.fillStyle = g2; ctx.fill();
+        ctx.strokeStyle = '#2c3037'; ctx.lineWidth = 2; ctx.stroke();
+        for (var i = 0; i < 2; i++) {
+          var bx = f.x + pw * (0.266 + i * 0.44), by = f.y + ph * 0.54;
+          ctx.beginPath(); ctx.arc(bx, by, pw * 0.124, 0, 6.2832);
+          ctx.strokeStyle = '#6d737d'; ctx.lineWidth = 4; ctx.stroke();
+          ctx.beginPath(); ctx.arc(bx, by, pw * 0.078, 0, 6.2832);
+          ctx.strokeStyle = '#585e68'; ctx.lineWidth = 2; ctx.stroke();
+        }
+        // 锅
+        var px = f.x + pw * 0.706, py = f.y + ph * 0.54;
+        ctx.beginPath(); ctx.arc(px, py, pw * 0.11, 0, 6.2832);
+        ctx.fillStyle = '#6f7681'; ctx.fill();
+        ctx.strokeStyle = '#8b929c'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.beginPath(); ctx.arc(px, py, pw * 0.032, 0, 6.2832);
+        ctx.fillStyle = '#9aa1ab'; ctx.fill();
+        break;
+
+      case 'table':
+        shadowBox(f.x, f.y, f.w, f.h, 16);
+        rr(f.x, f.y, f.w, f.h, 16);
+        ctx.fillStyle = '#cf9a68'; ctx.fill();
+        ctx.strokeStyle = '#b9834f'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = 'rgba(120,80,40,.16)';
+        rr(f.x + pw * 0.12, f.y + ph * 0.21, pw * 0.76, ph * 0.58, 10); ctx.fill();
+        var cx = f.x + pw * 0.35, cy = f.y + ph * 0.5;
+        ctx.beginPath(); ctx.arc(cx, cy, pw * 0.095, 0, 6.2832);
+        ctx.fillStyle = '#fbf7ef'; ctx.fill();
+        ctx.strokeStyle = '#e2d8c6'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.beginPath(); ctx.arc(cx, cy, pw * 0.052, 0, 6.2832);
+        ctx.fillStyle = '#edf2f4'; ctx.fill();
+        break;
+
+      case 'island':
+        shadowBox(f.x, f.y, f.w, f.h, 12);
+        rr(f.x, f.y, f.w, f.h, 12);
+        ctx.fillStyle = '#dfb98f'; ctx.fill();
+        ctx.strokeStyle = '#c79b6d'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.strokeStyle = 'rgba(180,140,100,.35)';
+        ctx.lineWidth = 1.5;
+        for (var m = 0; m < 3; m++) {
+          var ly = f.y + ph * (0.28 + m * 0.24);
+          ctx.beginPath();
+          ctx.moveTo(f.x + pw * 0.07, ly);
+          ctx.lineTo(f.x + pw * 0.93, ly);
+          ctx.stroke();
+        }
+        // 果盘
+        ctx.beginPath(); ctx.arc(f.x + pw * 0.765, f.y + ph * 0.5, pw * 0.09, 0, 6.2832);
+        ctx.fillStyle = '#f4efe4'; ctx.fill();
+        ctx.fillStyle = '#e98a6a'; ctx.beginPath(); ctx.arc(f.x + pw * 0.742, f.y + ph * 0.47, pw * 0.025, 0, 6.2832); ctx.fill();
+        ctx.fillStyle = '#a9c46a'; ctx.beginPath(); ctx.arc(f.x + pw * 0.826, f.y + ph * 0.52, pw * 0.025, 0, 6.2832); ctx.fill();
+        break;
+    }
+    ctx.restore();
+  }
+
+  function drawFish(x, y, s) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    // 影子
+    ctx.beginPath();
+    ctx.ellipse(0, 7, 11, 4, 0, 0, 6.2832);
+    ctx.fillStyle = 'rgba(110,80,50,.13)'; ctx.fill();
+    // 尾巴
+    ctx.beginPath();
+    ctx.moveTo(-8, 0); ctx.lineTo(-17, -7); ctx.lineTo(-17, 7);
+    ctx.closePath();
+    ctx.fillStyle = '#c99a63'; ctx.fill();
+    // 身体
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 11, 6.4, 0, 0, 6.2832);
+    var g = ctx.createLinearGradient(0, -7, 0, 7);
+    g.addColorStop(0, '#e2b479'); g.addColorStop(1, '#c08a52');
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = '#a4703c'; ctx.lineWidth = 1.4; ctx.stroke();
+    // 干瘪纹
+    ctx.strokeStyle = 'rgba(140,92,45,.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-4, -2.4); ctx.lineTo(3, -2.4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-3, 1.6); ctx.lineTo(2, 1.6); ctx.stroke();
+    // 眼睛
+    ctx.beginPath(); ctx.arc(5.4, -1.4, 1.7, 0, 6.2832);
+    ctx.fillStyle = '#4d3016'; ctx.fill();
+    ctx.restore();
+  }
+
+  function drawRobot(r) {
+    ctx.save();
+    ctx.translate(r.x, r.y);
+
+    // 影子
+    ctx.beginPath();
+    ctx.ellipse(0, 9, r.r * 1.02, r.r * 0.5, 0, 0, 6.2832);
+    ctx.fillStyle = 'rgba(110,80,50,.16)'; ctx.fill();
+
+    // 警戒圈
+    if (r.alert > 0.02) {
+      ctx.beginPath();
+      ctx.arc(0, 0, r.r + 9 + Math.sin(t * 8) * 2.5, 0, 6.2832);
+      ctx.strokeStyle = 'rgba(233,72,72,' + (0.16 + r.alert * 0.4) + ')';
+      ctx.lineWidth = 3; ctx.stroke();
+    }
+
+    // 刷子
+    ctx.save();
+    ctx.rotate(r.spin);
+    for (var i = 0; i < 3; i++) {
+      ctx.rotate(2.0944);
+      ctx.beginPath();
+      ctx.moveTo(0, 0); ctx.lineTo(r.r * 0.95, 0);
+      ctx.strokeStyle = 'rgba(60,66,76,.55)';
+      ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(r.r * 0.95, 0, 3, 0, 6.2832);
+      ctx.fillStyle = 'rgba(50,55,64,.6)'; ctx.fill();
+    }
+    ctx.restore();
+
+    // 机身
+    var g = ctx.createRadialGradient(-5, -7, 3, 0, 0, r.r * 1.1);
+    g.addColorStop(0, '#6b727d'); g.addColorStop(1, '#33383f');
+    ctx.beginPath(); ctx.arc(0, 0, r.r, 0, 6.2832);
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = '#22262c'; ctx.lineWidth = 2.2; ctx.stroke();
+
+    // 顶盖
+    ctx.beginPath(); ctx.arc(0, 0, r.r * 0.66, 0, 6.2832);
+    ctx.fillStyle = 'rgba(255,255,255,.10)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.16)'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // 指示灯
+    var on = 0.55 + 0.45 * Math.sin(t * (r.alert > 0.5 ? 12 : 3));
+    ctx.beginPath(); ctx.arc(0, 0, 3.4, 0, 6.2832);
+    ctx.fillStyle = r.alert > 0.5
+      ? 'rgba(255,86,86,' + on + ')'
+      : 'rgba(94,214,140,' + on + ')';
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // 小老鼠：灰褐色身体 + 长尾 + 圆耳；狂暴时红眼红晕、冒怒气；眩晕时头顶转星星
+  function drawMouse(m) {
+    var rage = m.mode === 'rage';
+    ctx.save();
+    ctx.translate(m.x, m.y);
+
+    // 影子（随体型变大）
+    ctx.beginPath();
+    ctx.ellipse(0, m.r * 0.8, m.r * 1.05, m.r * 0.46, 0, 0, 6.2832);
+    ctx.fillStyle = 'rgba(110,80,50,.16)'; ctx.fill();
+
+    // 狂暴警戒圈
+    if (rage) {
+      var pulse = 0.5 + 0.5 * Math.sin(mouseWarnFlash * 1.2);
+      ctx.beginPath();
+      ctx.arc(0, 0, m.r + 8 + pulse * 3, 0, 6.2832);
+      ctx.strokeStyle = 'rgba(214,69,58,' + (0.25 + pulse * 0.35) + ')';
+      ctx.lineWidth = 3; ctx.stroke();
+    }
+
+    ctx.rotate(m.angle);
+    if (m.stun > 0) ctx.rotate(Math.sin(m.step) * 0.25);
+    var blink = m.inv > 0 ? (0.35 + 0.65 * Math.abs(Math.sin(t * 20))) : 1;
+    ctx.globalAlpha = blink;
+
+    var body = rage ? ['#8f7d7d', '#6b5b5b'] : ['#b7ada3', '#938a80'];
+
+    // 尾巴
+    ctx.beginPath();
+    ctx.moveTo(-m.r * 0.85, 0);
+    ctx.quadraticCurveTo(-m.r * 1.9, Math.sin(m.step * 0.8) * m.r * 0.6 - m.r * 0.5,
+                         -m.r * 2.2, Math.sin(m.step * 0.8) * m.r - m.r * 0.2);
+    ctx.strokeStyle = rage ? '#c87b72' : '#d2a7a0';
+    ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.stroke();
+
+    // 身体
+    var g = ctx.createLinearGradient(-m.r, -m.r, m.r, m.r);
+    g.addColorStop(0, body[0]); g.addColorStop(1, body[1]);
+    ctx.beginPath(); ctx.ellipse(0, 0, m.r, m.r * 0.78, 0, 0, 6.2832);
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = rage ? '#5a4646' : '#7c746b'; ctx.lineWidth = 1.3; ctx.stroke();
+
+    // 耳朵
+    ctx.fillStyle = rage ? '#d9928c' : '#e2b6ae';
+    ctx.beginPath(); ctx.arc(m.r * 0.45, -m.r * 0.62, m.r * 0.34, 0, 6.2832); ctx.fill();
+    ctx.beginPath(); ctx.arc(m.r * 0.45, m.r * 0.62, m.r * 0.34, 0, 6.2832); ctx.fill();
+
+    // 头/鼻子
+    ctx.fillStyle = rage ? '#a99595' : '#c9bfb5';
+    ctx.beginPath(); ctx.arc(m.r * 0.72, 0, m.r * 0.55, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = '#e08a86';
+    ctx.beginPath(); ctx.arc(m.r * 1.22, 0, m.r * 0.16, 0, 6.2832); ctx.fill();
+
+    // 眼睛
+    ctx.fillStyle = rage ? '#ff3b2f' : '#2f2822';
+    ctx.beginPath(); ctx.arc(m.r * 0.82, -m.r * 0.26, m.r * 0.13, 0, 6.2832); ctx.fill();
+    ctx.beginPath(); ctx.arc(m.r * 0.82, m.r * 0.26, m.r * 0.13, 0, 6.2832); ctx.fill();
+
+    // 胡须
+    ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(m.r * 1.1, -m.r * 0.12); ctx.lineTo(m.r * 1.6, -m.r * 0.4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m.r * 1.1, m.r * 0.12); ctx.lineTo(m.r * 1.6, m.r * 0.4); ctx.stroke();
+
+    // 狂暴怒气符号
+    if (rage) {
+      ctx.rotate(-m.angle);
+      ctx.fillStyle = '#d6453a';
+      ctx.font = '700 ' + Math.round(m.r * 0.9) + 'px sans-serif';
+      ctx.fillText('💢', -m.r * 0.4, -m.r * 1.4);
+    }
+    ctx.globalAlpha = 1;
+
+    // 眩晕星星（不随身体旋转）
+    if (m.stun > 0) {
+      ctx.rotate(-m.angle);
+      var parts = ['✦', '✧', '★'];
+      for (var i = 0; i < 3; i++) {
+        var a = m.step * 1.6 + i * 2.094;
+        ctx.fillStyle = '#e7b13c';
+        ctx.font = '700 13px sans-serif';
+        ctx.fillText(parts[i], Math.cos(a) * 14 - 5, -m.r - 10 + Math.sin(a) * 4);
+      }
+    }
+    ctx.restore();
+
+    // 命数小点（画在世界坐标，不旋转）
+    if (m.mode === 'timid') {
+      var dots = Math.min(m.lives, 9);
+      for (var d = 0; d < dots; d++) {
+        ctx.beginPath();
+        ctx.arc(m.x - (dots - 1) * 4.2 + d * 8.4, m.y - m.r - 12, 2.8, 0, 6.2832);
+        ctx.fillStyle = '#d6453a'; ctx.fill();
+      }
+    }
+  }
+
+  // 「小心老鼠」全屏警报：暗红扫光 + 中央警告字，闪烁但不依赖音频
+  function drawWarnBanner() {
+    var k = mouseWarn / WARN_TIME;                 // 1 → 0
+    var fade = Math.min(1, k * 3, (1 - k) * 8);    // 头尾淡入淡出
+    var flashOn = Math.sin(mouseWarnFlash) > -0.2;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, fade) * (0.16 + (flashOn ? 0.1 : 0));
+    ctx.fillStyle = '#d6453a';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = Math.max(0, Math.min(1, fade));
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var cy = H / 2 - 6;
+    ctx.font = '900 58px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+    ctx.lineWidth = 8; ctx.strokeStyle = 'rgba(90,20,16,.75)';
+    ctx.strokeText('⚠ 小心老鼠 ⚠', W / 2, cy);
+    ctx.fillStyle = flashOn ? '#fff3d0' : '#ffd15c';
+    ctx.fillText('⚠ 小心老鼠 ⚠', W / 2, cy);
+    ctx.font = '700 18px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+    ctx.fillStyle = '#fff6e6';
+    ctx.fillText('老鼠吃了 5 条鱼干，开始反击！', W / 2, cy + 46);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.restore();
+  }
+
+  function drawCat() {
+    var blink = cat.inv > 0 ? (0.32 + 0.68 * Math.abs(Math.sin(t * 18))) : 1;
+    ctx.save();
+    ctx.globalAlpha = blink;
+    ctx.translate(cat.x, cat.y);
+
+    // 影子
+    ctx.beginPath();
+    ctx.ellipse(0, 11, 18, 7, 0, 0, 6.2832);
+    ctx.fillStyle = 'rgba(110,80,50,.18)'; ctx.fill();
+
+    ctx.rotate(cat.angle);
+    var sc = catScale();
+    if (sc.x !== 1 || sc.y !== 1) ctx.scale(sc.x, sc.y);
+
+    // 尾巴
+    var sway = Math.sin(cat.step * 0.9) * 7;
+    ctx.beginPath();
+    ctx.moveTo(-13, 0);
+    ctx.quadraticCurveTo(-25, sway * 0.6, -30, sway + 3);
+    ctx.strokeStyle = '#e08e48';
+    ctx.lineWidth = 6.5; ctx.lineCap = 'round'; ctx.stroke();
+    ctx.strokeStyle = '#f0a860';
+    ctx.lineWidth = 4; ctx.stroke();
+
+    // 身体
+    ctx.beginPath();
+    ctx.ellipse(-1, 0, 14.5, 10.5, 0, 0, 6.2832);
+    var gb = ctx.createLinearGradient(-12, -10, 8, 10);
+    gb.addColorStop(0, '#f7b477'); gb.addColorStop(1, '#eb9a54');
+    ctx.fillStyle = gb; ctx.fill();
+    ctx.strokeStyle = '#d9863f'; ctx.lineWidth = 1.4; ctx.stroke();
+
+    // 虎斑
+    ctx.strokeStyle = 'rgba(200,113,50,.65)';
+    ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+    for (var i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(-8 + i * 5.5, 0, 8.5, -1.05, 1.05);
+      ctx.stroke();
+    }
+
+    // 头
+    ctx.beginPath();
+    ctx.arc(9, 0, 10.2, 0, 6.2832);
+    var gh = ctx.createRadialGradient(6, -3, 2, 9, 0, 11);
+    gh.addColorStop(0, '#ffc78e'); gh.addColorStop(1, '#f0a35c');
+    ctx.fillStyle = gh; ctx.fill();
+    ctx.strokeStyle = '#d9863f'; ctx.lineWidth = 1.4; ctx.stroke();
+
+    // 耳朵
+    ctx.fillStyle = '#f0a35c';
+    ctx.beginPath(); ctx.moveTo(5, -8.5); ctx.lineTo(9.5, -14.5); ctx.lineTo(12.5, -7.5); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(5, 8.5); ctx.lineTo(9.5, 14.5); ctx.lineTo(12.5, 7.5); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#f6b6a4';
+    ctx.beginPath(); ctx.moveTo(6.8, -9.2); ctx.lineTo(9.4, -12.6); ctx.lineTo(11.2, -8.6); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(6.8, 9.2); ctx.lineTo(9.4, 12.6); ctx.lineTo(11.2, 8.6); ctx.closePath(); ctx.fill();
+
+    // 眼睛
+    ctx.fillStyle = '#3b2a1c';
+    ctx.beginPath(); ctx.ellipse(13.2, -3.5, 1.9, 2.3, 0, 0, 6.2832); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(13.2, 3.5, 1.9, 2.3, 0, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.beginPath(); ctx.arc(13.8, -4.2, 0.7, 0, 6.2832); ctx.fill();
+    ctx.beginPath(); ctx.arc(13.8, 2.8, 0.7, 0, 6.2832); ctx.fill();
+
+    // 鼻子
+    ctx.fillStyle = '#e8827e';
+    ctx.beginPath();
+    ctx.moveTo(18.4, 0); ctx.lineTo(16.4, -1.6); ctx.lineTo(16.4, 1.6);
+    ctx.closePath(); ctx.fill();
+
+    // 胡须
+    ctx.strokeStyle = 'rgba(255,255,255,.75)';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath(); ctx.moveTo(16.5, -2); ctx.lineTo(22, -5.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(16.5, 2); ctx.lineTo(22, 5.5); ctx.stroke();
+
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawParts() {
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      var a = Math.max(0, p.life / p.max);
+      ctx.globalAlpha = a;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, 6.2832);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawFeather(f) {
+    var wob = Math.sin(t * 2.6 + f.ph);
+    var pulse = 0.5 + 0.5 * Math.sin(t * 4 + f.ph);
+    ctx.save();
+    ctx.translate(f.x, f.y);
+    // 脉冲圈表示这是限时道具
+    ctx.beginPath();
+    ctx.arc(0, 0, 26 + pulse * 4, 0, 6.2832);
+    ctx.strokeStyle = 'rgba(236,132,168,' + (0.22 + pulse * 0.35).toFixed(3) + ')';
+    ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(0, 18, 13, 4.5, 0, 0, 6.2832);
+    ctx.fillStyle = 'rgba(110,80,50,.16)'; ctx.fill();
+    ctx.rotate(-0.35 + wob * 0.12);
+    // 木杆
+    ctx.beginPath(); ctx.moveTo(-13, 14); ctx.lineTo(9, -13);
+    ctx.strokeStyle = '#a9763f'; ctx.lineWidth = 3.4; ctx.lineCap = 'round'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-12, 13); ctx.lineTo(8, -12);
+    ctx.strokeStyle = '#d9a968'; ctx.lineWidth = 1.6; ctx.stroke();
+    // 细绳
+    ctx.beginPath(); ctx.moveTo(9, -13); ctx.quadraticCurveTo(16, -19, 19 + wob * 2, -24);
+    ctx.strokeStyle = '#b9a48c'; ctx.lineWidth = 1.3; ctx.stroke();
+    // 三根羽毛
+    var cols = ['#f48fb1', '#8ecdf6', '#ffd36e'];
+    for (var i = 0; i < 3; i++) {
+      ctx.save();
+      ctx.translate(19 + wob * 2, -24);
+      ctx.rotate(-0.5 + i * 0.5 + wob * 0.15);
+      ctx.beginPath();
+      ctx.ellipse(0, -8, 4.2, 10, 0, 0, 6.2832);
+      ctx.fillStyle = cols[i]; ctx.fill();
+      ctx.strokeStyle = 'rgba(90,60,50,.35)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function drawPops() {
+    for (var i = 0; i < pops.length; i++) {
+      var q = pops[i];
+      ctx.globalAlpha = Math.max(0, Math.min(1, q.life / 0.4));
+      ctx.textAlign = 'center';
+      ctx.font = '700 20px -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC",sans-serif';
+      ctx.fillStyle = '#d1608a';
+      ctx.fillText(q.text, q.x, q.y);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  }
+
+  function heart(x, y, s, color) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    ctx.beginPath();
+    ctx.moveTo(0, 3.4);
+    ctx.bezierCurveTo(-6.2, -1.4, -5.2, -8.2, 0, -4.4);
+    ctx.bezierCurveTo(5.2, -8.2, 6.2, -1.4, 0, 3.4);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawHUD() {
+    ctx.save();
+    ctx.textBaseline = 'middle';
+
+    // 鱼干计数
+    ctx.save();
+    ctx.shadowColor = 'rgba(120,90,60,.16)';
+    ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+    rr(18, 16, 168, 48, 14);
+    ctx.fillStyle = 'rgba(255,253,249,.92)';
+    ctx.fill();
+    ctx.restore();
+    drawFish(46, 41, 0.9);
+    ctx.fillStyle = '#3a2f28';
+    ctx.font = '700 21px -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(collected + ' / ' + GOAL, 68, 41);
+
+    // 生命：默认 3 颗；捕获老鼠补命后可超过上限，最多画 8 颗，再多以 +N 标注
+    var hc = Math.min(Math.max(3, lives), 8);
+    var hgap = hc > 5 ? 22 : 30;
+    var hscale = hc > 5 ? 0.85 : 1.05;
+    for (var i = 0; i < hc; i++) {
+      heart(220 + i * hgap, 40, hscale, i < lives ? '#ef5a5a' : 'rgba(95,74,56,.15)');
+    }
+    if (lives > 8) {
+      ctx.fillStyle = '#3a2f28';
+      ctx.font = '700 18px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      ctx.fillText('+' + (lives - 8), 220 + 8 * hgap, 46);
+    }
+
+    // 计时
+    ctx.save();
+    ctx.shadowColor = 'rgba(120,90,60,.16)';
+    ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+    rr(W - 150, 16, 132, 48, 14);
+    ctx.fillStyle = 'rgba(255,253,249,.92)';
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = '#96836c';
+    ctx.font = '600 12px -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC",sans-serif';
+    ctx.fillText('用时', W - 132, 31);
+    ctx.fillStyle = '#3a2f28';
+    ctx.font = '700 19px -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC",sans-serif';
+    ctx.fillText(fmt(elapsed), W - 132, 49);
+
+    drawBoostHUD();
+    drawMouseHUD();
+    ctx.restore();
+  }
+
+  // 老鼠状态条：让玩家看懂「躲猫觅食 → 吃满 5 条狂暴」的机制
+  function drawMouseHUD() {
+    if (!mouse && mouseRespawn <= 0) return;
+    var x = 18, y = H - 60, w = 250, h = 44;
+    ctx.save();
+    ctx.shadowColor = 'rgba(120,90,60,.16)';
+    ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+    rr(x, y, w, h, 13);
+    ctx.fillStyle = 'rgba(255,253,249,.92)';
+    ctx.fill();
+    ctx.restore();
+
+    if (!mouse) {
+      ctx.fillStyle = '#96836c';
+      ctx.font = '600 13px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      ctx.fillText('🐭 老鼠将在 ' + Math.ceil(mouseRespawn) + 's 后出现', x + 14, y + 27);
+      return;
+    }
+    var m = mouse, rage = m.mode === 'rage';
+    ctx.fillStyle = rage ? '#d6453a' : '#7b6a58';
+    ctx.font = '700 14px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+    ctx.fillText(rage ? '🐭💢 狂暴中 ' + m.rageLeft.toFixed(1) + 's' : '🐭 老鼠偷鱼中', x + 14, y + 18);
+    ctx.fillStyle = '#a08e78';
+    ctx.font = '600 12px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+    ctx.fillText(rage ? '命 ' + m.lives + '（碰机器人 -1）' : '鱼干 ' + Math.min(m.eaten, MOUSE_RAGE_EAT) + '/' + MOUSE_RAGE_EAT + ' · 命 ' + m.lives, x + 14, y + 35);
+    // 进度条：狂暴时显示剩余时间比例，普通时显示吃鱼进度
+    var pct = rage ? m.rageLeft / MOUSE_RAGE_TIME : Math.min(1, m.eaten / MOUSE_RAGE_EAT);
+    ctx.fillStyle = 'rgba(214,69,58,.16)';
+    rr(x + w - 74, y + 13, 60, 6, 3); ctx.fill();
+    ctx.fillStyle = rage ? '#d6453a' : '#c99a63';
+    rr(x + w - 74, y + 13, 60 * pct, 6, 3); ctx.fill();
+  }
+
+  // 增益条：只在生效时绘制，逻辑递减在 updateFeather 里，HUD 只读状态。
+  // 双箭头图标 + 文字 + 秒数 + 进度条，不只靠颜色传达信息。
+  function drawBoostHUD() {
+    if (speedBoost <= 0) return;
+    var x = 320, y = 16, w = 178, h = 48;
+    ctx.save();
+    ctx.shadowColor = 'rgba(120,90,60,.16)';
+    ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+    rr(x, y, w, h, 14);
+    ctx.fillStyle = 'rgba(255,253,249,.94)';
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = '#d1608a';
+    ctx.beginPath();
+    ctx.moveTo(x + 14, y + 15); ctx.lineTo(x + 25, y + 24); ctx.lineTo(x + 14, y + 33);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 23, y + 15); ctx.lineTo(x + 34, y + 24); ctx.lineTo(x + 23, y + 33);
+    ctx.closePath(); ctx.fill();
+
+    ctx.fillStyle = '#3a2f28';
+    ctx.font = '700 16px -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC",sans-serif';
+    ctx.fillText('冲刺 ×2', x + 42, y + 20);
+    ctx.fillStyle = '#96836c';
+    ctx.font = '600 13px -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC",sans-serif';
+    ctx.fillText(speedBoost.toFixed(1) + 's', x + 118, y + 20);
+
+    ctx.fillStyle = 'rgba(209,96,138,.18)';
+    rr(x + 12, y + 37, w - 24, 5, 2.5); ctx.fill();
+    ctx.fillStyle = '#d1608a';
+    rr(x + 12, y + 37, (w - 24) * Math.max(0, speedBoost / BOOST_DURATION), 5, 2.5); ctx.fill();
+  }
+
+  function fmt(sec) {
+    var m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  // ---------- 流程 ----------
+  var overlay = document.getElementById('overlay');
+  var ttl = document.getElementById('ttl');
+  var sub = document.getElementById('sub');
+  var stat = document.getElementById('stat');
+  var btn = document.getElementById('btn');
+  var emoji = document.getElementById('emoji');
+
+  function startGame() {
+    reset();
+    state = 'playing';
+    overlay.classList.add('hidden');
+    sfx('start');
+    last = 0;
+  }
+
+  function finish(win) {
+    state = 'over';
+    winFlag = !!win;
+    if (win) sfx('win'); else sfx('lose');
+    emoji.textContent = win ? '🏆' : '😿';
+    ttl.textContent = win ? '满载而归！' : '被逮住了…';
+    sub.textContent = win
+      ? '20 条鱼干全部到手，扫地机器人只能干瞪眼。'
+      : '扫地机器人撞了你三次，鱼干撒了一地。';
+    stat.textContent = '鱼干 ' + collected + ' / ' + GOAL + '　·　用时 ' + fmt(elapsed);
+    btn.textContent = '再来一局';
+    overlay.classList.remove('hidden');
+  }
+
+  function showStart() {
+    state = 'ready';
+    emoji.textContent = '🐟';
+    ttl.textContent = '厨房猫偷鱼干';
+    sub.textContent = '叼走 20 条鱼干，别被扫地机器人撞到。';
+    stat.textContent = '';
+    btn.textContent = '开始偷鱼干';
+    overlay.classList.remove('hidden');
+  }
+
+  btn.addEventListener('click', function () {
+    if (state === 'over' || state === 'ready') startGame();
+  });
+
+  var soundBtn = document.getElementById('soundBtn');
+  soundBtn.addEventListener('click', function () {
+    muted = !muted;
+    soundBtn.textContent = muted ? '🔇' : '🔊';
+    soundBtn.title = muted ? '已静音' : '声音开关';
+  });
+
+  // 可访问性：抖动 100% / 30% / 关，关闭强闪改用淡色 tint
+  var fxBtn = document.getElementById('fxBtn');
+  var FX_LABELS = ['动效 100%', '动效 30%', '动效 关'];
+  function applyFxLabel() {
+    fxBtn.textContent = FX_LABELS[fxLevel];
+    fxBtn.title = fxLevel === 0 ? '抖动 100%（点按减弱）'
+      : (fxLevel === 1 ? '抖动 30%、已减弱闪光' : '已关闭抖动与闪光');
+  }
+  applyFxLabel();
+  fxBtn.addEventListener('click', function () {
+    fxLevel = (fxLevel + 1) % 3;
+    try { window.localStorage.setItem('kitchen-cat-fx', String(fxLevel)); } catch (e) {}
+    applyFxLabel();
+  });
+
+  // ---------- 输入 ----------
+  var keys = {};
+  var pointer = null;
+
+  window.addEventListener('keydown', function (e) {
+    var k = e.key.toLowerCase();
+    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].indexOf(k) >= 0) e.preventDefault();
+    keys[k] = true;
+    if ((k === ' ' || k === 'enter') && state !== 'playing') startGame();
+  });
+  window.addEventListener('keyup', function (e) { keys[e.key.toLowerCase()] = false; });
+  window.addEventListener('blur', function () { keys = {}; pointer = null; });
+
+  var stage = document.getElementById('stage');
+  function toWorld(e) {
+    var r = cvs.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+  }
+  stage.addEventListener('pointerdown', function (e) {
+    if (state !== 'playing') { startGame(); return; }
+    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+    pointer = toWorld(e);
+  });
+  stage.addEventListener('pointermove', function (e) {
+    if (!pointer) return;
+    pointer = toWorld(e);
+  });
+  stage.addEventListener('pointerup', function () { pointer = null; });
+  stage.addEventListener('pointercancel', function () { pointer = null; });
+  stage.addEventListener('pointerleave', function () { pointer = null; });
+
+  // ---------- 主循环 ----------
+  function loop(ts) {
+    if (!last) last = ts;
+    var realDt = (ts - last) / 1000;
+    last = ts;
+    if (realDt > 0.05) realDt = 0.05;
+    if (realDt > 0) fps = fps * 0.9 + (1 / realDt) * 0.1;
+
+    // hit-stop 按真实时间结束；新的一击会延长它，不会有旧定时器提前解冻
+    if (hitStopLeft > 0) {
+      hitStopLeft = Math.max(0, hitStopLeft - realDt);
+      timeScale = hitStopLeft > 0 ? hitStopSlow : 1;
+    } else {
+      timeScale = 1;
+    }
+
+    var dt = realDt * timeScale;
+    t += dt;                 // 世界动画时钟：冻结时一并放慢
+    update(dt, realDt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // 初始画面：先摆几条鱼干，方便看场景
+  for (var i = 0; i < 4; i++) spawnFish();
+  draw();
+  requestAnimationFrame(loop);
+
+  // 加 ?play=1 可跳过开始面板直接开局（方便截图与分享链接）
+  if (location.search.indexOf('play=1') >= 0) startGame();
+
+  // ---------- 反馈层回归钩子（供 test-feedback.cjs 使用） ----------
+  window.__feedback = {
+    fire: function (tier) { feedback(tier, cat.x, cat.y); },
+    setFx: function (n) { if (n >= 0 && n <= 2) { fxLevel = n; applyFxLabel(); } },
+    state: function () {
+      var sh = shakeOffset(), sc = catScale();
+      return {
+        timeScale: +timeScale.toFixed(4),
+        hitStopLeft: +hitStopLeft.toFixed(4),
+        trauma: +trauma.toFixed(4),
+        popT: +popT.toFixed(4),
+        scaleX: +sc.x.toFixed(4), scaleY: +sc.y.toFixed(4),
+        flash: +flash.toFixed(4),
+        shakeX: +sh.x.toFixed(4), shakeY: +sh.y.toFixed(4),
+        fxLevel: fxLevel
+      };
+    }
+  };
+
+  // ---------- 增益道具回归钩子（供 test-boost.cjs 使用） ----------
+  window.__boost = {
+    spawn: function () { return spawnFeather(); },
+    schedule: function (first) { scheduleFeather(!!first); },
+    pick: function () { if (feather) checkFeather(feather.x, feather.y); },
+    tick: function (seconds) { updateFeather(seconds); },  // 仅回归：确定性推进道具/增益时钟
+    restart: function () { startGame(); },                  // 仅回归：绕过按钮的状态判断直接重开
+    state: function () {
+      return {
+        active: !!feather,
+        x: feather ? +feather.x.toFixed(2) : null,
+        y: feather ? +feather.y.toFixed(2) : null,
+        ttl: feather ? +feather.ttl.toFixed(2) : null,
+        reachable: feather ? !blocked(feather.x, feather.y, 46) : null,
+        awayFromCat: feather ? Math.round(dist(feather.x, feather.y, cat.x, cat.y)) : null,
+        nextIn: +featherTimer.toFixed(2),
+        boostLeft: +speedBoost.toFixed(2),
+        multiplier: speedBoost > 0 ? BOOST_MULT : 1,
+        pops: pops.length
+      };
+    }
+  };
+
+  // ---------- 布局回归钩子（供 test-layout.cjs 使用） ----------
+  window.__layout = {
+    furniture: function () {
+      return furniture.map(function (f) {
+        return { x: f.x, y: f.y, w: f.w, h: f.h, type: f.type };
+      });
+    },
+    blocked: function (x, y, r) { return blocked(x, y, r); },
+    // 只留一台机器人并放到指定位置，用来复现「猫贴边界、机器人堵在内侧」的场景
+    setup: function (cx, cy, rx, ry) {
+      robots.length = 0;
+      var bot = makeRobot();
+      bot.x = rx; bot.y = ry; bot.stun = 0; bot.tx = 0; bot.ty = 0;
+      robots.push(bot);
+      cat.x = cx; cat.y = cy; cat.inv = 0; ghost = 0;
+      pointer = null; autoDir = null; autoUntil = 0;
+      autoLast = null; autoStuck = 0;
+    },
+    state: function () {
+      return {
+        cat: { x: +cat.x.toFixed(2), y: +cat.y.toFixed(2) },
+        robots: robots.map(function (o) { return { x: +o.x.toFixed(2), y: +o.y.toFixed(2) }; }),
+        lives: lives,
+        phase: state === 'playing' ? 'playing' : 'over'
+      };
+    }
+  };
+
+  // ---------- 小老鼠回归钩子（供 test-mouse.cjs 使用） ----------
+  window.__mouse = {
+    spawn: function () { spawnMouse(); },
+    finish: function () { mouse = null; scheduleMouseRespawn(false); },
+    tick: function (seconds) { updateMouse(seconds); },        // 确定性推进老鼠 AI
+    reset: function () { startGame(); },                        // 干净重开
+    // 直接把老鼠喂到指定吃鱼数，可触发狂暴；bypass 鱼干是否存在
+    feed: function (n) {
+      if (!mouse) spawnMouse();
+      for (var i = 0; i < n; i++) {
+        mouse.eaten++;
+        mouse.lives++;
+        mouse.r = MOUSE_BASE_R * Math.pow(MOUSE_GROW, mouse.eaten);
+        if (mouse.eaten >= MOUSE_RAGE_EAT && mouse.mode === 'timid') enterRage();
+      }
+    },
+    place: function (mx, my, cx, cy) {
+      if (!mouse) spawnMouse();
+      mouse.x = mx; mouse.y = my; mouse.stun = 0; mouse.inv = 0;
+      if (cx !== undefined) { cat.x = cx; cat.y = cy; cat.inv = 0; ghost = 0; }
+    },
+    // 单步触发一次机器人撞老鼠的交互判定
+    robotCheck: function () { checkRobotMouse(); },
+    catAttack: function () { checkCatAttackMouse(); },
+    rageHit: function () { return checkRageMouseHit(); },
+    state: function () {
+      return {
+        exists: !!mouse,
+        x: mouse ? +mouse.x.toFixed(2) : null,
+        y: mouse ? +mouse.y.toFixed(2) : null,
+        r: mouse ? +mouse.r.toFixed(2) : null,
+        lives: mouse ? mouse.lives : 0,
+        eaten: mouse ? mouse.eaten : 0,
+        mode: mouse ? mouse.mode : null,
+        rageLeft: mouse ? +mouse.rageLeft.toFixed(3) : 0,
+        stun: mouse ? +mouse.stun.toFixed(3) : 0,
+        inv: mouse ? +mouse.inv.toFixed(3) : 0,
+        fleeing: mouse ? !!mouse.fleeing : false,
+        respawnIn: +mouseRespawn.toFixed(2),
+        warnLeft: +mouseWarn.toFixed(2),
+        reachable: mouse ? !blocked(mouse.x, mouse.y, mouse.r) : null,
+        catLives: lives,
+        catInv: +cat.inv.toFixed(3)
+      };
+    }
+  };
+
+  // ---------- DSH 试玩钩子（可选）：让 game_studio_playtest 读状态并自动驾驶 ----------
+  window.__gameState = function () {
+    function r(v) {
+      if (typeof v !== 'number' || isNaN(v)) return 0;
+      var n = Math.round(v * 100) / 100;
+      return n === 0 ? 0 : n;
+    }
+    return {
+      phase: state === 'playing' ? 'playing' : (state === 'over' ? (winFlag ? 'won' : 'lost') : 'title'),
+      time: r(elapsed),
+      score: r(collected),
+      hearts: r(lives),
+      hero: { x: r(cat.x), y: r(cat.y) },
+      enemies: robots.map(function (o) { return { x: r(o.x), y: r(o.y) }; }),
+      pickups: fish.map(function (f) { return { x: r(f.x), y: r(f.y) }; }),
+      feather: feather ? { x: r(feather.x), y: r(feather.y), ttl: r(feather.ttl) } : null,
+      boost: { left: r(speedBoost), multiplier: speedBoost > 0 ? BOOST_MULT : 1 },
+      mouse: mouse ? {
+        x: r(mouse.x), y: r(mouse.y), r: r(mouse.r), lives: r(mouse.lives),
+        eaten: r(mouse.eaten), mode: mouse.mode, stun: r(mouse.stun)
+      } : null,
+      mouseRespawn: r(mouseRespawn),
+      world: { w: W, h: H },
+      fps: r(fps)
+    };
+  };
+
+  var autoLast = null, autoStuck = 0;
+
+  window.__autoplay = function (s) {
+    if (state !== 'playing' || !s || !s.hero) return;
+    var hx = s.hero.x, hy = s.hero.y;
+
+    // 连续几次几乎没挪动 = 撞上家具或墙角，下一步改成侧向绕行
+    if (autoLast && Math.hypot(hx - autoLast.x, hy - autoLast.y) < 5) autoStuck++;
+    else autoStuck = 0;
+    autoLast = { x: hx, y: hy };
+
+    var target = null, td = 1e9;
+    var list = s.pickups || [];
+    for (var i = 0; i < list.length; i++) {
+      var d = Math.hypot(list[i].x - hx, list[i].y - hy);
+      if (d < td) { td = d; target = list[i]; }
+    }
+
+    // 限时道具优先：出现时只要不比最近的鱼干远太多，就先去追
+    if (s.feather) {
+      var fd = Math.hypot(s.feather.x - hx, s.feather.y - hy);
+      if (fd < td * 1.6) { target = s.feather; td = fd; }
+    }
+
+    var dx = 0, dy = 0;
+    if (target) { dx = target.x - hx; dy = target.y - hy; }
+    var l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+
+    // 贴墙时沿垂直方向绕
+    if (autoStuck >= 3) {
+      var sign = autoStuck % 2 === 0 ? 1 : -1;
+      var ox = -dy * sign, oy = dx * sign;
+      dx = dx * 0.25 + ox * 1.35;
+      dy = dy * 0.25 + oy * 1.35;
+      var lb = Math.hypot(dx, dy) || 1; dx /= lb; dy /= lb;
+    }
+
+    // 离机器人太近就先躲
+    var nd = 1e9, near = null;
+    var foes = s.enemies || [];
+    // 狂暴老鼠与机器人同级，一并躲避
+    if (s.mouse && s.mouse.mode === 'rage') {
+      foes = foes.concat([{ x: s.mouse.x, y: s.mouse.y }]);
+    }
+    for (var j = 0; j < foes.length; j++) {
+      var dd = Math.hypot(foes[j].x - hx, foes[j].y - hy);
+      if (dd < nd) { nd = dd; near = foes[j]; }
+    }
+    if (near && nd < 128) {
+      var ax = hx - near.x, ay = hy - near.y;
+      var al = Math.hypot(ax, ay) || 1;
+      ax /= al; ay /= al;
+      // 角落里「远离机器人」的方向往往正对着墙/家具，顶墙会让猫卡死。
+      // 若前方不可通行，改为朝场地中心推进脱困。
+      if (blocked(hx + ax * 34, hy + ay * 34, cat.r + 2)) {
+        var cx0 = W / 2 - hx, cy0 = H / 2 - hy, cl = Math.hypot(cx0, cy0) || 1;
+        ax = cx0 / cl; ay = cy0 / cl;
+      }
+      dx = dx * 0.3 + ax * 1.35;
+      dy = dy * 0.3 + ay * 1.35;
+      var l2 = Math.hypot(dx, dy) || 1; dx /= l2; dy /= l2;
+    }
+
+    autoDir = { x: dx, y: dy };
+    autoUntil = t + (autoStuck >= 3 ? 0.5 : 0.34);
+  };
+})();
+</script>
+</body>
+</html>
